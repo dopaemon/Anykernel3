@@ -1,0 +1,5 @@
+# Placeholder for KernelSU-enabled kernel image
+# Replace this file with your actual KernelSU-patched kernel Image
+# This should be the kernel compiled with KernelSU support
+echo "This is a placeholder for the KernelSU-enabled kernel image"
+echo "Replace with actual Image file compiled with KernelSU"

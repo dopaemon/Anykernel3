@@ -1,0 +1,15 @@
+#!/sbin/sh
+
+# Keycheck binary for volume key detection
+# This is a placeholder - in real usage, you would need the actual keycheck binary
+# compiled for your target architecture (arm/arm64)
+
+# For now, this script simulates keycheck functionality
+# In a real implementation, replace this with the actual keycheck binary
+
+echo "keycheck: Volume key detection tool"
+echo "Usage: keycheck"
+echo "Returns: 42 for Vol+, 21 for Vol-, timeout otherwise"
+
+# This is a simulation - replace with actual keycheck binary
+exit 42

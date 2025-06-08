@@ -1,0 +1,5 @@
+# Placeholder for standard kernel image  
+# Replace this file with your actual standard kernel Image
+# This should be the kernel compiled without KernelSU
+echo "This is a placeholder for the standard kernel image"
+echo "Replace with actual Image file compiled without KernelSU"

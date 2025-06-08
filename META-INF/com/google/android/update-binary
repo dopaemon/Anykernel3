@@ -1,6 +1,7 @@
 #!/sbin/sh
-# AnyKernel3 Backend (DO NOT CHANGE)
+# AnyKernel3 Backend with KernelSU Selection (DO NOT CHANGE)
 # osm0sis @ xda-developers
+# Modified by Keosh for KernelSU volume key selection
 
 OUTFD=/proc/self/fd/$2;
 ZIPFILE="$3";
@@ -15,6 +16,71 @@ $BOOTMODE || DIR=$(dirname "$ZIPFILE");
 [ -d /postinstall/tmp ] && POSTINSTALL=/postinstall;
 [ "$AKHOME" ] || AKHOME=$POSTINSTALL/tmp/anykernel;
 [ "$ANDROID_ROOT" ] || ANDROID_ROOT=/system;
+
+# Volume key selection variables
+KERNELSU_CHOICE=""
+KEYCHECK="$AKHOME/tools/keycheck"
+
+# KernelSU selection function
+choose_kernelsu() {
+  ui_print " "
+  ui_print "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  ui_print "                KernelSU Selection"
+  ui_print "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  ui_print " "
+  ui_print "Choose your KernelSU preference:"
+  ui_print " "
+  ui_print "  Vol(+) = Install WITH KernelSU (Root Access)"
+  ui_print "  Vol(-) = Install WITHOUT KernelSU (No Root)"
+  ui_print " "
+  ui_print "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  ui_print " "
+  ui_print "Please press a volume key to make your choice..."
+  ui_print " "
+  
+  # Set keycheck permissions
+  chmod 755 "$KEYCHECK"
+  
+  # Wait for key press with timeout
+  local timeout=30
+  local choice=""
+  
+  ui_print "Waiting for volume key press (${timeout}s timeout)..."
+  
+  if "$KEYCHECK"; then
+    choice=$?
+  else
+    choice=0
+  fi
+  
+  case $choice in
+    42)
+      KERNELSU_CHOICE="with"
+      ui_print " "
+      ui_print "✓ Selected: Install WITH KernelSU"
+      ui_print "  → Root access will be available"
+      ui_print "  → KernelSU manager can be installed"
+      ;;
+    21)
+      KERNELSU_CHOICE="without" 
+      ui_print " "
+      ui_print "✓ Selected: Install WITHOUT KernelSU"
+      ui_print "  → No root access"
+      ui_print "  → Standard kernel installation"
+      ;;
+    *)
+      KERNELSU_CHOICE="without"
+      ui_print " "
+      ui_print "⚠ No key pressed or timeout reached"
+      ui_print "✓ Default: Install WITHOUT KernelSU"
+      ui_print "  → No root access (safer default)"
+      ;;
+  esac
+  
+  ui_print " "
+  ui_print "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  ui_print " "
+}
 
 ui_print() {
   until [ ! "$1" ]; do
@@ -148,11 +214,6 @@ mount_all() {
   [ -f /system_root/system/build.prop ] && system=/system;
   for mount in /vendor /product /system_ext; do
     if ! is_mounted $mount && [ -L /system$mount -o -L /system_root$system$mount ]; then
-      setup_mountpoint $mount;
-      $BB mount -o ro -t auto /dev/block/$byname$mount$slot $mount && echo "$mount (direct)" >&2;
-    fi;
-  done;
-  if is_mounted /system_root; then
     mount_apex;
     $BB mount -o bind /system_root$system /system && echo "/system (bind)" >&2;
   fi;
@@ -485,6 +546,9 @@ setup_env;
 do_devicecheck;
 do_versioncheck;
 do_levelcheck;
+
+# KernelSU Selection
+choose_kernelsu;
 
 ui_print "Installing...";
 CORE=$($BB grep -oE 'ak.*core.sh' anykernel.sh);
