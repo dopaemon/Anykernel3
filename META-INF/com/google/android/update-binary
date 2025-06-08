@@ -41,21 +41,32 @@ choose_kernelsu() {
   # Set keycheck permissions
   chmod 755 "$KEYCHECK"
   
+  # Check if keycheck exists and is executable
+  if [ ! -f "$KEYCHECK" ]; then
+    ui_print "⚠ Warning: keycheck binary not found"
+    ui_print "   Using default selection (without KernelSU)"
+    KERNELSU_CHOICE="without"
+    export KERNELSU_CHOICE
+    return
+  fi
+  
   # Wait for key press with timeout
   local timeout=30
   local choice=""
   
   ui_print "Waiting for volume key press (${timeout}s timeout)..."
   
-  if "$KEYCHECK"; then
-    choice=$?
-  else
-    choice=0
-  fi
+  # Try to execute keycheck and capture return code
+  "$KEYCHECK" 2>/dev/null
+  choice=$?
+  
+  # Debug: Show return code
+  ui_print "Debug: keycheck returned code $choice"
   
   case $choice in
     42)
       KERNELSU_CHOICE="with"
+      export KERNELSU_CHOICE
       ui_print " "
       ui_print "✓ Selected: Install WITH KernelSU"
       ui_print "  → Root access will be available"
@@ -63,6 +74,7 @@ choose_kernelsu() {
       ;;
     21)
       KERNELSU_CHOICE="without" 
+      export KERNELSU_CHOICE
       ui_print " "
       ui_print "✓ Selected: Install WITHOUT KernelSU"
       ui_print "  → No root access"
@@ -70,6 +82,7 @@ choose_kernelsu() {
       ;;
     *)
       KERNELSU_CHOICE="without"
+      export KERNELSU_CHOICE
       ui_print " "
       ui_print "⚠ No key pressed or timeout reached"
       ui_print "✓ Default: Install WITHOUT KernelSU"
