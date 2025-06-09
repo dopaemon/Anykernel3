@@ -12,5 +12,6 @@ Linux: 5.10.y - GKI
 Android: 12
 Developer: @KernelPanix
 -----------------------------
-
++ Volume <UP> For KernelSU
++ Volume <DOWN> For Normal
 -----------------------------
