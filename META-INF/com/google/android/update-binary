@@ -21,7 +21,57 @@ $BOOTMODE || DIR=$(dirname "$ZIPFILE");
 KERNELSU_CHOICE=""
 KEYCHECK="$AKHOME/tools/keycheck"
 
-# KernelSU selection function
+# Enhanced keycheck function with added keycode 41 support
+get_keycheck_result() {
+  # Default behavior:
+  # - press Vol+: return true (0)
+  # - press Vol-: return false (1)
+  
+  local rc_1 rc_2
+  # Common keycodes - different devices use different values
+  local KEYCODE_UP=42       # Standard volume up
+  local KEYCODE_DOWN=21     # Standard volume down
+  local KEYCODE_UP_ALT=115  # Alternative volume up code
+  local KEYCODE_DOWN_ALT=114 # Alternative volume down code
+  local KEYCODE_DOWN_ALT2=41 # Additional alternative for volume down (your device)
+  
+  ui_print "Debug: Waiting for volume key press..."
+  ui_print "Debug: Press Volume UP or DOWN now..."
+  ui_print "Debug: Supported keycodes - UP: 42/115, DOWN: 21/114/41"
+  
+  local timeout=30 # Timeout after 30 attempts
+  local counter=0
+  
+  while [ $counter -lt $timeout ]; do
+    # First keycheck attempt
+    "$KEYCHECK" 2>/dev/null; rc_1=$?
+    # Second keycheck for button release
+    "$KEYCHECK" 2>/dev/null; rc_2=$?
+    
+    ui_print "Debug: Keycode detected: $rc_1"
+    
+    # Check for all possible keycodes
+    if [ "$rc_1" = "$KEYCODE_UP" ] || [ "$rc_1" = "$KEYCODE_UP_ALT" ]; then
+      ui_print "Debug: Volume UP detected ($rc_1)"
+      return 0
+    fi
+    
+    if [ "$rc_1" = "$KEYCODE_DOWN" ] || [ "$rc_1" = "$KEYCODE_DOWN_ALT" ] || [ "$rc_1" = "$KEYCODE_DOWN_ALT2" ]; then
+      ui_print "Debug: Volume DOWN detected ($rc_1)"
+      return 1
+    fi
+    
+    counter=$((counter + 1))
+    sleep 0.2
+  done
+  
+  # Timeout occurred
+  ui_print "Debug: Timeout waiting for volume key"
+  ui_print "Debug: Defaulting to standard kernel (no KernelSU)"
+  return 1
+}
+
+# KernelSU selection function with enhanced keycheck
 choose_kernelsu() {
   ui_print " "
   ui_print "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -38,8 +88,16 @@ choose_kernelsu() {
   ui_print "Please press a volume key to make your choice..."
   ui_print " "
   
+  # Debug: Show keycheck path and info
+  ui_print "Debug: keycheck path = $KEYCHECK"
+  ui_print "Debug: keycheck exists = $([ -f "$KEYCHECK" ] && echo "YES" || echo "NO")"
+  if [ -f "$KEYCHECK" ]; then
+    ui_print "Debug: keycheck size = $(stat -c%s "$KEYCHECK" 2>/dev/null || wc -c < "$KEYCHECK" 2>/dev/null || echo "unknown")"
+  fi
+  
   # Set keycheck permissions
   chmod 755 "$KEYCHECK"
+  ui_print "Debug: keycheck permissions set to 755"
   
   # Check if keycheck exists and is executable
   if [ ! -f "$KEYCHECK" ]; then
@@ -50,47 +108,27 @@ choose_kernelsu() {
     return
   fi
   
-  # Wait for key press with timeout
-  local timeout=30
-  local choice=""
+  ui_print "Debug: Starting volume key detection..."
   
-  ui_print "Waiting for volume key press (${timeout}s timeout)..."
-  
-  # Try to execute keycheck and capture return code
-  "$KEYCHECK" 2>/dev/null
-  choice=$?
-  
-  # Debug: Show return code
-  ui_print "Debug: keycheck returned code $choice"
-  
-  case $choice in
-    42)
-      KERNELSU_CHOICE="with"
-      export KERNELSU_CHOICE
-      ui_print " "
-      ui_print "✓ Selected: Install WITH KernelSU"
-      ui_print "  → Root access will be available"
-      ui_print "  → KernelSU manager can be installed"
-      ;;
-    21)
-      KERNELSU_CHOICE="without" 
-      export KERNELSU_CHOICE
-      ui_print " "
-      ui_print "✓ Selected: Install WITHOUT KernelSU"
-      ui_print "  → No root access"
-      ui_print "  → Standard kernel installation"
-      ;;
-    *)
-      KERNELSU_CHOICE="without"
-      export KERNELSU_CHOICE
-      ui_print " "
-      ui_print "⚠ No key pressed or timeout reached"
-      ui_print "✓ Default: Install WITHOUT KernelSU"
-      ui_print "  → No root access (safer default)"
-      ;;
-  esac
+  # Enhanced keycheck with proper button handling
+  if get_keycheck_result; then
+    KERNELSU_CHOICE="with"
+    export KERNELSU_CHOICE
+    ui_print " "
+    ui_print "✓ Selected: Install WITH KernelSU"
+    ui_print "  → Root access will be available"
+    ui_print "  → KernelSU manager can be installed"
+  else
+    KERNELSU_CHOICE="without"
+    export KERNELSU_CHOICE
+    ui_print " "
+    ui_print "✓ Selected: Install WITHOUT KernelSU"
+    ui_print "  → No root access"
+    ui_print "  → Standard kernel installation"
+  fi;
   
   ui_print " "
+  ui_print "Debug: KERNELSU_CHOICE set to: $KERNELSU_CHOICE"
   ui_print "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   ui_print " "
 }
@@ -227,9 +265,10 @@ mount_all() {
   [ -f /system_root/system/build.prop ] && system=/system;
   for mount in /vendor /product /system_ext; do
     if ! is_mounted $mount && [ -L /system$mount -o -L /system_root$system$mount ]; then
-    mount_apex;
-    $BB mount -o bind /system_root$system /system && echo "/system (bind)" >&2;
-  fi;
+      mount_apex;
+      $BB mount -o bind /system_root$system /system && echo "/system (bind)" >&2;
+    fi;
+  done; # Fixed missing done; statement here
   if ! is_mounted /persist && [ -e /dev/block/bootdevice/by-name/persist ]; then
     setup_mountpoint /persist;
     $BB mount -o ro -t auto /dev/block/bootdevice/by-name/persist /persist && echo "/persist (direct)" >&2;
@@ -503,7 +542,7 @@ do_modules() {
     done;
     if [ ! -d /postinstall/tmp ]; then
       $BB mount -o ro,remount -t auto /system;
-      ($BB mount -o ro,remount -t auto /vendor;
+      ($BB mount -o rw,remount -t auto /vendor;
       $BB mount -o ro,remount -t auto /product) 2>/dev/null;
     fi;
   fi;
