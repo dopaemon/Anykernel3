@@ -36,7 +36,8 @@ get_keycheck_result() {
   local KEYCODE_DOWN_ALT2=41 # Additional alternative for volume down (your device)
   local timeout=60 # Timeout after 30 attempts
   local counter=0
-
+  ui_print "Press Any volume key to continue !!!";
+  ui_print " ";
   while [ $counter -lt $timeout ]; do
     # First keycheck attempt
     "$KEYCHECK" 2>/dev/null; rc_1=$?
@@ -522,11 +523,6 @@ if [ $? != 0 -o -z "$(ls bin)" ]; then
   abort "Busybox setup failed. Aborting...";
 fi;
 
-if [ -f banner ]; then
-  ui_printfile banner;
-  ui_print " " " ";
-fi;
-
 KERNEL_STRING="$(file_getprop anykernel.sh kernel.string)";
 ui_print "$KERNEL_STRING";
 if [ -f version ]; then
@@ -535,6 +531,12 @@ if [ -f version ]; then
   ui_print " ";
 fi;
 ui_print " " "AnyKernel3 by osm0sis @ xda-developers" " ";
+ui_print " ";
+if [ -f banner ]; then
+  ui_printfile banner;
+  ui_print " ";
+fi;
+
 $BB grep -oE 'AK_BASE.*' META-INF/com/google/android/updater-script >&2;
 ui_print " ";
 

@@ -37,12 +37,6 @@ patch_vbmeta_flag=auto;
 # import functions/variables and setup patching - see for reference (DO NOT REMOVE)
 . tools/ak3-core.sh && attributes;
 
-
-# Test Key
-ui_print " ";
-ui_print "Press Any volume key to continue !!!";
-ui_print " ";
-
 # KernelSU Selection Logic
 ui_print " ";
 ui_print "-------------------------------------------------";
