@@ -1,6 +1,7 @@
 ### AnyKernel3 Ramdisk Mod Script
 ## osm0sis @ xda-developers
 ## cyberknight777 @ xda-developers
+## Modified by dopaemon (DoraCore GKI build) � fixed vendor_dlkm repack logic and space detection
 
 ### AnyKernel setup
 # global properties
@@ -26,18 +27,17 @@ IS_SLOT_DEVICE=1;
 RAMDISK_COMPRESSION=auto;
 PATCH_VBMETA_FLAG=auto;
 NO_MAGISK_CHECK=true;
-
-# import functions/variables and setup patching - see for reference (DO NOT REMOVE)
+AK3_DEBUG=1;
+# import functions/variables and setup patching - do not remove
 . tools/ak3-core.sh;
 
-$BOOTMODE || \
-abort "[✗] Use userspace kernel flashing applications to flash"
+$BOOTMODE || umount /vendor_dlkm
+export magisk_patched
+$BOOTMODE || setenforce 0
 
 # boot install
-split_boot; # use split_boot to skip ramdisk unpack, e.g. for devices with init_boot ramdisk
-
-flash_boot; # use flash_boot to skip ramdisk repack, e.g. for devices with init_boot ramdisk
-## end boot install
+split_boot
+flash_boot
 
 # vendor_boot shell variables
 BLOCK=vendor_boot;
@@ -49,92 +49,145 @@ PATCH_VBMETA_FLAG=auto;
 reset_ak;
 
 # vendor_boot install
-split_boot; # use split_boot to skip ramdisk unpack, e.g. for dtb on devices with hdr v4 but no vendor_kernel_boot
+split_boot
 
+
+# ---------- Helper functions ----------
+
+get_size() {
+	local _path=$1
+	local _size
+	if [ -d "$_path" ]; then
+		du -bs "$_path" | awk '{print $1}'
+		return
+	fi
+	if [ -b "$_path" ]; then
+		_size=$(blockdev --getsize64 "$_path" 2>/dev/null) && {
+			echo "$_size"
+			return
+		}
+	fi
+	wc -c < "$_path"
+}
+
+bytes_to_mb() {
+	echo "$1" | awk '{printf "%.1fM", $1 / 1024 / 1024}'
+}
+
+# ---------- vendor_boot content update ----------
 if [ -f $AKHOME/modules/dlkm.cpio.lz4 ]; then
-    ui_print " " "- [✓] LZ4 CPIO archive found. Starting vendor_ramdisk modules update..."
-
-    ui_print "- [•] Decompressing the archive..."
-    magiskboot decompress $AKHOME/modules/dlkm.cpio.lz4 $AKHOME/dlkm.cpio || \
-        abort "[✗] Failed to decompress LZ4 CPIO archive"
-
-    ui_print "- [•] Updating vendor_ramdisk modules..."
-    mv $AKHOME/dlkm.cpio $SPLITIMG/vendor_ramdisk/dlkm.cpio || \
-        abort "[✗] Updating vendor_ramdisk modules failed"
+	ui_print " "
+	ui_print "- [V] LZ4 CPIO archive found. Starting vendor_ramdisk modules update..."
+	ui_print "- [�] Decompressing the archive..."
+	magiskboot decompress $AKHOME/modules/dlkm.cpio.lz4 $AKHOME/dlkm.cpio || abort "[X] Failed to decompress LZ4 archive"
+	ui_print "- [�] Updating vendor_ramdisk modules..."
+	mv $AKHOME/dlkm.cpio $SPLITIMG/vendor_ramdisk/dlkm.cpio || abort "[X] Updating vendor_ramdisk modules failed"
 fi
 
 if [ -f $AKHOME/config/modules.load.recovery ]; then
-    ui_print " " "- [✓] Recovery modules.load found. Starting vendor_ramdisk recovery modules.load update..."
-
-    ui_print "- [•] Checking for modules.load.recovery in platform (default) ramdisk.cpio..."
-    magiskboot cpio $SPLITIMG/vendor_ramdisk/ramdisk.cpio "exists lib/modules/modules.load.recovery" || \
-        abort "[✗] Checking for modules.load.recovery in platform (default) ramdisk.cpio failed"
-
-    ui_print "- [•] Updating platform (default) ramdisk.cpio..."
-    magiskboot cpio $SPLITIMG/vendor_ramdisk/ramdisk.cpio "add 0644 lib/modules/modules.load.recovery $AKHOME/config/modules.load.recovery" || \
-        abort "[✗] Updating platform (default) ramdisk.cpio failed"
+	ui_print " "
+	ui_print "- [V] Recovery modules.load found. Updating ramdisk..."
+	magiskboot cpio $SPLITIMG/vendor_ramdisk/ramdisk.cpio "add 0644 lib/modules/modules.load.recovery $AKHOME/config/modules.load.recovery" || abort "[X] Updating ramdisk.cpio failed"
 fi
 
-ui_print "- [✓] Flashing new vendor_boot image..."
-flash_boot; # use flash_boot to skip ramdisk repack, e.g. for dtb on devices with hdr v4 but no vendor_kernel_boot
-## end vendor_boot install
+ui_print "- [V] Flashing new vendor_boot image..."
+flash_boot
 
-## vendor_dlkm install
+
+# ---------- vendor_dlkm update ----------
 if [ -f $AKHOME/modules/dlkm.tar.xz ]; then
-    # reset for vendor_dlkm patching
-    reset_ak;
+	reset_ak;
 
-    ui_print " " "/dev/block/mapper/vendor_dlkm${SLOT}"
-    ui_print " " "- [✓] XZ tarball found. Starting /vendor_dlkm modules update..."
+	ui_print " "
+	ui_print "/dev/block/mapper/vendor_dlkm${SLOT}"
+	ui_print " " "- [V] Starting /vendor_dlkm update..."
 
-    ui_print "- [•] Pulling /vendor_dlkm image from current slot (${SLOT})..."
-    dd if=/dev/block/mapper/vendor_dlkm${SLOT} of=${AKHOME}/vendor_dlkm.img || \
-        abort "[✗] Failed to pull vendor_dlkm${SLOT}.img"
-    extract_vendor_dlkm_dir=${AKHOME}/_extract_vendor_dlkm
-    mkdir -p $extract_vendor_dlkm_dir || \
-        abort "[✗] Failed to create $extract_vendor_dlkm_dir"
+	ui_print "- [�] Pulling /vendor_dlkm from current slot (${SLOT})..."
+	dd if=/dev/block/mapper/vendor_dlkm${SLOT} of=${AKHOME}/vendor_dlkm.img &>/dev/null || \
+		abort "[X] Failed to pull vendor_dlkm${SLOT}.img"
 
-    ui_print "- [•] Unpacking /vendor_dlkm image..."
-    ${BIN}/extract.erofs -i ${AKHOME}/vendor_dlkm.img -x -T8 -o ${extract_vendor_dlkm_dir} &> /dev/null || \
-        abort "[✗] Failed to unpack the vendor_dlkm image"
-    sync
+	extract_vendor_dlkm_dir=${AKHOME}/_extract_vendor_dlkm
+	mkdir -p "$extract_vendor_dlkm_dir" || abort "[X] Failed to create $extract_vendor_dlkm_dir"
 
-    ui_print "- [•] Updating /vendor_dlkm modules..."
-    extract_vendor_dlkm_modules_dir=${extract_vendor_dlkm_dir}/vendor_dlkm/lib/modules
-    rm -f ${extract_vendor_dlkm_modules_dir}/* || \
-        abort "[✗] Failed to remove pre-existing files in ${extract_vendor_dlkm_modules_dir}"
-    rm -f ${extract_vendor_dlkm_dir}/config/vendor_dlkm_{fs_config,file_contexts} || \
-        abort "[✗] Failed to remove pre-existing fs_config and file_contexts in ${extract_vendor_dlkm_dir}/config"
-    busybox tar -xpf ${AKHOME}/modules/dlkm.tar.xz -C ${extract_vendor_dlkm_dir}/vendor_dlkm/ || \
-        abort "[✗] Failed to extract XZ-compressed tarball"
-    mv ${AKHOME}/config/vendor_dlkm* ${extract_vendor_dlkm_dir}/config/ || \
-        abort "[✗] Failed to move fs_config and file_contexts to ${extract_vendor_dlkm_dir}/config"
+	ui_print "- [�] Mount /vendor_dlkm image (ro)..."
+	mount ${AKHOME}/vendor_dlkm.img ${extract_vendor_dlkm_dir} -o ro -t ext4 &>/dev/null || \
+		abort "[X] Failed to mount vendor_dlkm image (ro)"
+	sync
 
-    ui_print "- [•] Repacking /vendor_dlkm image..."
-    rm -f ${AKHOME}/vendor_dlkm.img || \
-        abort "[✗] Failed to remove pre-existing vendor_dlkm.img"
-    ${BIN}/mkfs.erofs \
-          --mount-point /vendor_dlkm \
-          --fs-config-file ${extract_vendor_dlkm_dir}/config/vendor_dlkm_fs_config \
-          --file-contexts ${extract_vendor_dlkm_dir}/config/vendor_dlkm_file_contexts \
-          -z lz4 \
-          -b 4096 \
-          -C 262144 \
-          -T 1230768000 \
-          ${AKHOME}/vendor_dlkm.img ${extract_vendor_dlkm_dir}/vendor_dlkm || \
-        abort "[✗] Failed to repack the vendor_dlkm image"
-    rm -rf ${extract_vendor_dlkm_dir} || \
-        abort "[✗] Failed to remove working directory"
-    unset extract_vendor_dlkm_dir extract_vendor_dlkm_modules_dir
+	ui_print "- [�] Preparing new modules..."
+	mkdir -p ${AKHOME}/vdlkm
+	extract_vendor_dlkm_modules_dir=${extract_vendor_dlkm_dir}/lib/modules
+	vendor_dlkm_stock_modules_size=$(get_size ${extract_vendor_dlkm_modules_dir})
 
-    vendor_dlkm_block_size=$(blockdev --getsize64 /dev/block/mapper/vendor_dlkm${SLOT})
-    if [ $(wc -c < $AKHOME/vendor_dlkm.img) -lt ${vendor_dlkm_block_size} ]; then
-        ui_print "- [•] Generated /vendor_dlkm image size is smaller than the block device..."
-        ui_print "- [•] Truncating to fill the erofs image file..."
-        truncate -c -s $vendor_dlkm_block_size $AKHOME/vendor_dlkm.img
-    fi
+	busybox tar -xpf ${AKHOME}/modules/dlkm.tar.xz -C ${AKHOME}/vdlkm || \
+		abort "[X] Failed to extract dlkm.tar.xz"
 
-    ui_print "- [✓] Flashing new /vendor_dlkm image..."
-    flash_generic vendor_dlkm;
+	# --- robust space calculation (no df) ---
+	loop_dev=$(mount | awk -v mp="$extract_vendor_dlkm_dir" '$0 ~ mp {print $1; exit}')
+	[ -z "$loop_dev" ] && loop_dev=$(mount | grep "$extract_vendor_dlkm_dir" | awk '{print $1; exit}')
+
+	vendor_dlkm_full_space=0
+	vendor_dlkm_used_space=0
+	vendor_dlkm_free_space=0
+
+	# full: blockdev or .img
+	if [ -b "$loop_dev" ] && command -v blockdev >/dev/null 2>&1; then
+		vendor_dlkm_full_space=$(blockdev --getsize64 "$loop_dev" 2>/dev/null || echo 0)
+	fi
+	if [ "$vendor_dlkm_full_space" -eq 0 ] && [ -f "${AKHOME}/vendor_dlkm.img" ]; then
+		vendor_dlkm_full_space=$(get_size "${AKHOME}/vendor_dlkm.img")
+	fi
+
+	# used: du
+	vendor_dlkm_used_space=$(du -sk "$extract_vendor_dlkm_dir" 2>/dev/null | awk '{print $1 * 1024}' || echo 0)
+
+	# free = full - used
+	if [ "$vendor_dlkm_full_space" -gt "$vendor_dlkm_used_space" ]; then
+		vendor_dlkm_free_space=$((vendor_dlkm_full_space - vendor_dlkm_used_space))
+	else
+		vendor_dlkm_free_space=0
+	fi
+	# ----------------------------------------
+
+	ui_print "- vendor/dlkm space info:"
+	ui_print "  - total: $(bytes_to_mb $vendor_dlkm_full_space)"
+	ui_print "  - used:  $(bytes_to_mb $vendor_dlkm_used_space)"
+	ui_print "  - free:  $(bytes_to_mb $vendor_dlkm_free_space)"
+	ui_print "  raw bytes => total=$vendor_dlkm_full_space used=$vendor_dlkm_used_space free=$vendor_dlkm_free_space"
+
+	umount $extract_vendor_dlkm_dir
+
+	vendor_dlkm_new_modules_size=$(get_size ${AKHOME}/vdlkm)
+	vendor_dlkm_need_size=$((vendor_dlkm_used_space - vendor_dlkm_stock_modules_size + vendor_dlkm_new_modules_size + 10*1024*1024))
+
+	if [ "$vendor_dlkm_need_size" -ge "$vendor_dlkm_full_space" ]; then
+		${bin}/e2fsck -f -y ${AKHOME}/vendor_dlkm.img
+		vendor_dlkm_resized_size=$(echo $vendor_dlkm_need_size | awk '{printf "%dM", ($1 / 1024 / 1024 + 1)}')
+		${bin}/resize2fs ${AKHOME}/vendor_dlkm.img $vendor_dlkm_resized_size || \
+			abort "! Can't resize vendor_dlkm image"
+		ui_print "- Resized vendor_dlkm to: ${vendor_dlkm_resized_size}"
+		${bin}/e2fsck -f -y ${AKHOME}/vendor_dlkm.img
+		unset vendor_dlkm_resized_size
+	else
+		ui_print "- Not need to resize vendor_dlkm"
+	fi
+
+	mount ${AKHOME}/vendor_dlkm.img ${extract_vendor_dlkm_dir} -o rw -t ext4 &>/dev/null || \
+		abort "[X] Failed to mount vendor_dlkm image (rw)"
+	sync
+
+	ui_print "- [�] Removing old vendor_dlkm modules..."
+	rm -rf ${extract_vendor_dlkm_modules_dir}/* || abort "[X] Failed to remove old modules"
+
+	ui_print "- [�] Copying new kernel modules..."
+	cp -r ${AKHOME}/vdlkm/* ${extract_vendor_dlkm_modules_dir}/
+	set_perm 0 0 0644 ${extract_vendor_dlkm_modules_dir}/*
+	[ -x "$(command -v chcon)" ] && chcon u:object_r:vendor_file:s0 ${extract_vendor_dlkm_modules_dir}/* || true
+
+	ui_print "- [�] Unmount vendor_dlkm..."
+	umount ${extract_vendor_dlkm_dir}
+	unset extract_vendor_dlkm_dir extract_vendor_dlkm_modules_dir
+
+	ui_print "- [V] Flashing new vendor_dlkm image..."
+	flash_generic vendor_dlkm
 fi
-## end vendor_dlkm install
